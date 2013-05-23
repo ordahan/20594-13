@@ -18,6 +18,11 @@
 #define FLAG_EXTRACT  "-x"
 #define PATH_MAX_LENGTH 97
 
+typedef struct
+{
+	char szPath[PATH_MAX_LENGTH];
+}file_header;
+
 void compress(const char* szPathToCompress, FILE* flResult);
 
 int main(int argc, char** argv)
@@ -95,11 +100,11 @@ int main(int argc, char** argv)
 
 void compress(const char* szPath, FILE* flResult)
 {
-	char szCurrPath[PATH_MAX_LENGTH];
+	file_header current_file;
 	struct stat to_compress;
 
-	memset(szCurrPath, 0, sizeof(szCurrPath));
-	strcpy(szCurrPath, szPath);
+	memset(current_file.szPath, 0, sizeof(current_file.szPath));
+	strcpy(current_file.szPath, szPath);
 
 	if (szPath == NULL ||
 		flResult == NULL)
@@ -115,13 +120,13 @@ void compress(const char* szPath, FILE* flResult)
 			// Write the path for the file
 			// in the archive.
 			// TODO: RELATIVE
-			if (fwrite(szCurrPath,
+			if (fwrite(current_file.szPath,
 				   sizeof(char),
-				   sizeof(szCurrPath),
-				   flResult) != sizeof(szCurrPath))
+				   sizeof(current_file.szPath),
+				   flResult) != sizeof(current_file.szPath))
 			{
 				printf("Error while writing to file %s: %s\n",
-						szCurrPath,
+						current_file.szPath,
 						strerror(errno));
 				return;
 			}
