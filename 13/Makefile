@@ -1,7 +1,7 @@
 all: mkbkp
 FLAGS = -Wall -L./ -g
 
-mkbkp: mkbkp.c
+mkbkp: mkbkp.c mkbkp.h
 	gcc $(FLAGS) -o mkbkp mkbkp.c  
 
 clean:

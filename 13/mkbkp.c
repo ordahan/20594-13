@@ -8,25 +8,14 @@
 
 #include <stdio.h>
 #include <string.h>
-
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <unistd.h>
 #include <errno.h>
 
-#define FLAG_COMPRESS "-c"
-#define FLAG_EXTRACT  "-x"
-#define PATH_MAX_LENGTH 256
+#include "mkbkp.h"
 
-typedef struct
-{
-	char   szPath[PATH_MAX_LENGTH];
-	off_t  size;
-	mode_t mode;
-}file_header;
-
-void compress(const char* szPathToCompress, FILE* flResult);
+// Internal functions
+// TODO: doc
 int copy_file_content(FILE* dest, FILE* src);
+void write_file_content(node_t *header, FILE* dest);
 
 int main(int argc, char** argv)
 {
@@ -102,7 +91,7 @@ int main(int argc, char** argv)
 
 void compress(const char* szPath, FILE* flResult)
 {
-	file_header header;
+	node_t header;
 	struct stat status;
 
 	// Make sure ptrs are valid
@@ -119,67 +108,52 @@ void compress(const char* szPath, FILE* flResult)
 	// either a file, a symlink or a folder
 	if (0 == lstat(szPath, &status))
 	{
-		// Save the type of the file
+		// Save the type of the node
 		header.mode = status.st_mode;
 
-		// Save the size of the file
-		header.size = status.st_size;
-
-		// Save the modification time
-
 		// Save the uid & gid
+		header.uid = status.st_uid;
+		header.gid = status.st_gid;
 
-		// Save file permissions
+		// TODO:Save permissions
 
-		// Write the current file header to the archive
+		// Save modification time (for file / folders)
+		header.concrete.modification = status.st_mtime;
+
+		// Save the file size (for files)
+		header.concrete.type.file.size = status.st_size;
+
+		// Write the current node header to the archive
 		if (fwrite(&header,
 				   sizeof(header),
 				   1,
 				   flResult) != 1)
 		{
-			printf("Error while writing header for file %s: %s\n",
+			printf("Error while writing header for node %s: %s\n",
 					header.szPath,
 					strerror(errno));
 			return;
 		}
 
-		// Save the file / folder / symlink
-		if (S_ISREG(status.st_mode) ||
-			S_ISLNK(status.st_mode))
+		// Symlink
+		if (S_ISLNK(status.st_mode))
 		{
-			FILE* curr_file = NULL;
-
-			// Open the file that we wish to add to the archive
-			curr_file = fopen(header.szPath, "rb");
-			if (curr_file == NULL)
-			{
-				printf("Error opening %s for compression: %s\n",
-						header.szPath,
-						strerror(errno));
-				return;
-			}
-
-			// Write the file content
-			if (0 != copy_file_content(flResult, curr_file))
-			{
-				printf("Error compressing file %s: %s\n",
-						header.szPath,
-						strerror(errno));
-				return;
-			}
-
-			// Done reading the current file
-			if (fclose(curr_file) != 0)
-			{
-				printf("Error closing %s: %s\n",
-						header.szPath,
-						strerror(errno));
-				return;
-			}
+			// TODO: anything else to do actually?
 		}
-		else if (S_ISDIR(status.st_mode))
+		// Folder / File
+		else if (S_ISREG(status.st_mode) ||
+				 S_ISDIR(status.st_mode))
 		{
-			// TODO: Continue the recursion
+			// Folder
+			if (S_ISDIR(status.st_mode))
+			{
+				// TODO: Continue the recursion
+			}
+			// File
+			else
+			{
+				write_file_content(&header, flResult);
+			}
 		}
 		else
 		{
@@ -218,4 +192,37 @@ int copy_file_content(FILE* dest, FILE* src)
 		return 0;
 
 	return -1;
+}
+
+void write_file_content(node_t *header, FILE* dest)
+{
+	FILE* curr_file = NULL;
+
+	// Open the file that we wish to add to the archive
+	curr_file = fopen(header->szPath, "rb");
+	if (curr_file == NULL)
+	{
+		printf("Error opening %s for compression: %s\n",
+				header->szPath,
+				strerror(errno));
+		return;
+	}
+
+	// Write the file content
+	if (0 != copy_file_content(dest, curr_file))
+	{
+		printf("Error compressing file %s: %s\n",
+				header->szPath,
+				strerror(errno));
+		return;
+	}
+
+	// Done reading the current file
+	if (fclose(curr_file) != 0)
+	{
+		printf("Error closing %s: %s\n",
+				header->szPath,
+				strerror(errno));
+		return;
+	}
 }
