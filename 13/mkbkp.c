@@ -103,6 +103,8 @@ void compress(const char* szPath, FILE* flResult)
 	file_header current_file;
 	struct stat to_compress;
 
+	// Set the path in the header
+	// TODO: RELATIVE
 	memset(current_file.szPath, 0, sizeof(current_file.szPath));
 	strcpy(current_file.szPath, szPath);
 
@@ -117,15 +119,13 @@ void compress(const char* szPath, FILE* flResult)
 		if (S_ISREG(to_compress.st_mode) ||
 			S_ISLNK(to_compress.st_mode))
 		{
-			// Write the path for the file
-			// in the archive.
-			// TODO: RELATIVE
-			if (fwrite(current_file.szPath,
-				   sizeof(char),
-				   sizeof(current_file.szPath),
-				   flResult) != sizeof(current_file.szPath))
+			// Write the current file header to the archive
+			if (fwrite(&current_file,
+					   sizeof(current_file),
+					   1,
+					   flResult) != 1)
 			{
-				printf("Error while writing to file %s: %s\n",
+				printf("Error while writing header for file %s: %s\n",
 						current_file.szPath,
 						strerror(errno));
 				return;
