@@ -16,14 +16,16 @@
 
 #define FLAG_COMPRESS "-c"
 #define FLAG_EXTRACT  "-x"
-#define PATH_MAX_LENGTH 97
+#define PATH_MAX_LENGTH 256
 
 typedef struct
 {
-	char szPath[PATH_MAX_LENGTH];
+	char  szPath[PATH_MAX_LENGTH];
+	off_t size;
 }file_header;
 
 void compress(const char* szPathToCompress, FILE* flResult);
+int copy_file_content(FILE* dest, FILE* src);
 
 int main(int argc, char** argv)
 {
@@ -97,41 +99,80 @@ int main(int argc, char** argv)
 	return 0;
 }
 
-
 void compress(const char* szPath, FILE* flResult)
 {
-	file_header current_file;
-	struct stat to_compress;
+	file_header header;
+	struct stat status;
 
-	// Set the path in the header
-	// TODO: RELATIVE
-	memset(current_file.szPath, 0, sizeof(current_file.szPath));
-	strcpy(current_file.szPath, szPath);
-
+	// Make sure ptrs are valid
 	if (szPath == NULL ||
 		flResult == NULL)
 		return;
 
+	// Set the path in the header
+	// TODO: RELATIVE
+	memset(header.szPath, 0, sizeof(header.szPath));
+	strcpy(header.szPath, szPath);
+
 	// Make sure that the requested node is
 	// either a file, a symlink or a folder
-	if (0 == lstat(szPath, &to_compress))
+	if (0 == lstat(szPath, &status))
 	{
-		if (S_ISREG(to_compress.st_mode) ||
-			S_ISLNK(to_compress.st_mode))
+		if (S_ISREG(status.st_mode) ||
+			S_ISLNK(status.st_mode))
 		{
+			FILE* curr_file = NULL;
+
+			// Open the file that we wish to add to the archive
+			curr_file = fopen(header.szPath, "rb");
+			if (curr_file == NULL)
+			{
+				printf("Error opening %s for compression: %s\n",
+						header.szPath,
+						strerror(errno));
+				return;
+			}
+
+			// Get the size of the file
+			header.size = status.st_size;
+
+			// Get the modification time
+
+			// Get the uid & gid
+
+			// Get file permissions
+
 			// Write the current file header to the archive
-			if (fwrite(&current_file,
-					   sizeof(current_file),
+			if (fwrite(&header,
+					   sizeof(header),
 					   1,
 					   flResult) != 1)
 			{
 				printf("Error while writing header for file %s: %s\n",
-						current_file.szPath,
+						header.szPath,
+						strerror(errno));
+				return;
+			}
+
+			// Write the file content
+			if (0 != copy_file_content(flResult, curr_file))
+			{
+				printf("Error compressing file %s: %s\n",
+						header.szPath,
+						strerror(errno));
+				return;
+			}
+
+			// Done reading the current file
+			if (fclose(curr_file) != 0)
+			{
+				printf("Error closing %s: %s\n",
+						header.szPath,
 						strerror(errno));
 				return;
 			}
 		}
-		else if (S_ISDIR(to_compress.st_mode))
+		else if (S_ISDIR(status.st_mode))
 		{
 
 		}
@@ -139,7 +180,7 @@ void compress(const char* szPath, FILE* flResult)
 		{
 			printf("file type not supported for %s: %d\n",
 					szPath,
-					to_compress.st_mode);
+					status.st_mode);
 		}
 	}
 	else
@@ -148,4 +189,28 @@ void compress(const char* szPath, FILE* flResult)
 				szPath,
 				strerror(errno));
 	}
+}
+
+int copy_file_content(FILE* dest, FILE* src)
+{
+	char buf[256];
+	size_t bytes_read = 0;
+
+	if (dest == NULL ||
+		src == NULL)
+		return -1;
+
+	while ((bytes_read = fread(buf, 1, sizeof(buf), src)) > 0)
+	{
+		if (fwrite(buf, 1, bytes_read, dest) != bytes_read)
+		{
+			return -1;
+		}
+	}
+
+	/* Ended because of an error and not eof? */
+	if (feof(src))
+		return 0;
+
+	return -1;
 }
