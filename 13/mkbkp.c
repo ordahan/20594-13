@@ -108,14 +108,12 @@ void compress(const char* szPath, FILE* flResult)
 	// either a file, a symlink or a folder
 	if (0 == lstat(szPath, &status))
 	{
-		// Save the type of the node
+		// Save the type & permissions of the node
 		header.mode = status.st_mode;
 
 		// Save the uid & gid
 		header.uid = status.st_uid;
 		header.gid = status.st_gid;
-
-		// TODO:Save permissions
 
 		// Save modification time (for file / folders)
 		header.concrete.modification = status.st_mtime;
