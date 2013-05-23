@@ -9,8 +9,16 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <errno.h>
+
 #define FLAG_COMPRESS "-c"
 #define FLAG_EXTRACT  "-x"
+#define PATH_MAX_LENGTH 97
+
+void compress(const char* szPathToCompress, FILE* flResult);
 
 int main(int argc, char** argv)
 {
@@ -48,11 +56,33 @@ int main(int argc, char** argv)
 	// Ok lets get this show on the road
 	else
 	{
-		// Compresssion
+		// Compression
 		if (fIsCompressing == 1)
 		{
+			/* Open the archive file to store the compression
+			 * in
+			 */
+			FILE* archive = fopen(argv[2], "wb");
 
+			if (archive == NULL)
+			{
+				printf("Error opening %s for writing as archive file: %s\n",
+						argv[2],
+						strerror(errno));
+				return -1;
+			}
+
+			compress(argv[3], archive);
+
+			if (fclose(archive) != 0)
+			{
+				printf("Error closing %s: %s\n",
+						argv[2],
+						strerror(errno));
+				return -1;
+			}
 		}
+		// Extract
 		else
 		{
 
@@ -60,4 +90,57 @@ int main(int argc, char** argv)
 	}
 
 	return 0;
+}
+
+
+void compress(const char* szPath, FILE* flResult)
+{
+	char szCurrPath[PATH_MAX_LENGTH];
+	struct stat to_compress;
+
+	memset(szCurrPath, 0, sizeof(szCurrPath));
+	strcpy(szCurrPath, szPath);
+
+	if (szPath == NULL ||
+		flResult == NULL)
+		return;
+
+	// Make sure that the requested node is
+	// either a file, a symlink or a folder
+	if (0 == lstat(szPath, &to_compress))
+	{
+		if (S_ISREG(to_compress.st_mode) ||
+			S_ISLNK(to_compress.st_mode))
+		{
+			// Write the path for the file
+			// in the archive.
+			// TODO: RELATIVE
+			if (fwrite(szCurrPath,
+				   sizeof(char),
+				   sizeof(szCurrPath),
+				   flResult) != sizeof(szCurrPath))
+			{
+				printf("Error while writing to file %s: %s\n",
+						szCurrPath,
+						strerror(errno));
+				return;
+			}
+		}
+		else if (S_ISDIR(to_compress.st_mode))
+		{
+
+		}
+		else
+		{
+			printf("file type not supported for %s: %d\n",
+					szPath,
+					to_compress.st_mode);
+		}
+	}
+	else
+	{
+		printf("stat failed for %s: %s\n",
+				szPath,
+				strerror(errno));
+	}
 }
