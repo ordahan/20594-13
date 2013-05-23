@@ -20,8 +20,9 @@
 
 typedef struct
 {
-	char  szPath[PATH_MAX_LENGTH];
-	off_t size;
+	char   szPath[PATH_MAX_LENGTH];
+	off_t  size;
+	mode_t mode;
 }file_header;
 
 void compress(const char* szPathToCompress, FILE* flResult);
@@ -118,6 +119,31 @@ void compress(const char* szPath, FILE* flResult)
 	// either a file, a symlink or a folder
 	if (0 == lstat(szPath, &status))
 	{
+		// Save the type of the file
+		header.mode = status.st_mode;
+
+		// Save the size of the file
+		header.size = status.st_size;
+
+		// Save the modification time
+
+		// Save the uid & gid
+
+		// Save file permissions
+
+		// Write the current file header to the archive
+		if (fwrite(&header,
+				   sizeof(header),
+				   1,
+				   flResult) != 1)
+		{
+			printf("Error while writing header for file %s: %s\n",
+					header.szPath,
+					strerror(errno));
+			return;
+		}
+
+		// Save the file / folder / symlink
 		if (S_ISREG(status.st_mode) ||
 			S_ISLNK(status.st_mode))
 		{
@@ -128,27 +154,6 @@ void compress(const char* szPath, FILE* flResult)
 			if (curr_file == NULL)
 			{
 				printf("Error opening %s for compression: %s\n",
-						header.szPath,
-						strerror(errno));
-				return;
-			}
-
-			// Get the size of the file
-			header.size = status.st_size;
-
-			// Get the modification time
-
-			// Get the uid & gid
-
-			// Get file permissions
-
-			// Write the current file header to the archive
-			if (fwrite(&header,
-					   sizeof(header),
-					   1,
-					   flResult) != 1)
-			{
-				printf("Error while writing header for file %s: %s\n",
 						header.szPath,
 						strerror(errno));
 				return;
@@ -174,7 +179,7 @@ void compress(const char* szPath, FILE* flResult)
 		}
 		else if (S_ISDIR(status.st_mode))
 		{
-
+			// TODO: Continue the recursion
 		}
 		else
 		{
