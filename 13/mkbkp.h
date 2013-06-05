@@ -60,7 +60,9 @@ typedef struct
 	};
 }node_t;
 
-void archive(const char* base, const char* file, FILE* flResult);
+void archive(const char* base, const char* file, FILE* archive_file);
+
+void extract(FILE* archive);
 
 
 #endif /* MKBKP_H_ */

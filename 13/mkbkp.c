@@ -18,9 +18,8 @@
 
 /* Internal functions */
 /* TODO: doc */
-int copy_file_content(FILE* dest, FILE* src);
-void write_file_content_to_archive(node_t *header, FILE* dest);
-
+int copy_file_content(FILE* dest, FILE* src, size_t size_src);
+void write_file_content_to_archive(node_t *header, FILE* archive_file);
 int main(int argc, char** argv)
 {
 	unsigned int fValidSyntax = 0;
@@ -87,21 +86,42 @@ int main(int argc, char** argv)
 		/* Extract */
 		else
 		{
+			/* Open the archive file to extract from
+			 */
+			FILE* archive_file = fopen(argv[2], "rb");
 
+			if (archive_file == NULL)
+			{
+				printf("Error opening %s for reading as archive file: %s\n",
+						argv[2],
+						strerror(errno));
+				return -1;
+			}
+
+			/* Extract the given archive */
+			extract(archive_file);
+
+			if (fclose(archive_file) != 0)
+			{
+				printf("Error closing %s: %s\n",
+						argv[2],
+						strerror(errno));
+				return -1;
+			}
 		}
 	}
 
 	return 0;
 }
 
-void archive(const char* base, const char* file, FILE* flResult)
+void archive(const char* base, const char* file, FILE* archive_file)
 {
 	node_t header;
 	struct stat status;
 
 	/* Make sure ptrs are valid */
 	if (file == NULL ||
-		flResult == NULL)
+		archive_file == NULL)
 		return;
 
 	memset(&header, 0, sizeof(header));
@@ -136,7 +156,7 @@ void archive(const char* base, const char* file, FILE* flResult)
 		if (fwrite(&header,
 				   sizeof(header),
 				   1,
-				   flResult) != 1)
+				   archive_file) != 1)
 		{
 			printf("Error while writing header for node %s: %s\n",
 					header.path,
@@ -170,7 +190,7 @@ void archive(const char* base, const char* file, FILE* flResult)
 			if (fwrite(&content,
 					   sizeof(content),
 					   1,
-					   flResult) != 1)
+					   archive_file) != 1)
 			{
 				printf("Error while writing content for node %s: %s\n",
 						header.path,
@@ -205,7 +225,7 @@ void archive(const char* base, const char* file, FILE* flResult)
 					if (strcmp(".", entry->d_name) != 0 &&
 						strcmp("..", entry->d_name) != 0)
 					{
-						archive(header.path, entry->d_name, flResult);
+						archive(header.path, entry->d_name, archive_file);
 					}
 				}
 
@@ -231,7 +251,7 @@ void archive(const char* base, const char* file, FILE* flResult)
 			/* File */
 			else
 			{
-				write_file_content_to_archive(&header, flResult);
+				write_file_content_to_archive(&header, archive_file);
 			}
 		}
 		else
@@ -249,21 +269,25 @@ void archive(const char* base, const char* file, FILE* flResult)
 	}
 }
 
-int copy_file_content(FILE* dest, FILE* src)
+int copy_file_content(FILE* dest, FILE* src, size_t size_src)
 {
-	char buf[256];
-	size_t bytes_read = 0;
+	char byte_read = 0;
+	size_t bytes_copied = 0;
 
 	if (dest == NULL ||
 		src == NULL)
 		return -1;
 
-	while ((bytes_read = fread(buf, 1, sizeof(buf), src)) > 0)
+	/* Copy byte by byte */
+	while ((byte_read = fgetc(src)) != EOF &&
+		   (size_src == 0 || bytes_copied < size_src))
 	{
-		if (fwrite(buf, 1, bytes_read, dest) != bytes_read)
+		if (fputc(byte_read, dest) == EOF)
 		{
 			return -1;
 		}
+
+		bytes_copied++;
 	}
 
 	/* Ended because of an error and not eof? */
@@ -273,7 +297,7 @@ int copy_file_content(FILE* dest, FILE* src)
 	return -1;
 }
 
-void write_file_content_to_archive(node_t *header, FILE* dest)
+void write_file_content_to_archive(node_t *header, FILE* archive_file)
 {
 	FILE* curr_file = NULL;
 
@@ -288,7 +312,7 @@ void write_file_content_to_archive(node_t *header, FILE* dest)
 	}
 
 	/* Write the file content */
-	if (0 != copy_file_content(dest, curr_file))
+	if (0 != copy_file_content(archive_file, curr_file, 0))
 	{
 		printf("Error archiving file %s: %s\n",
 				header->path,
@@ -302,6 +326,82 @@ void write_file_content_to_archive(node_t *header, FILE* dest)
 		printf("Error closing %s: %s\n",
 				header->path,
 				strerror(errno));
+		return;
+	}
+}
+
+void extract(FILE* archive_file)
+{
+	node_t header;
+	FILE* extracted_file = NULL;
+
+	/* Make sure the file is valid */
+	if (archive_file == NULL)
+		return;
+
+	/* Read the archive entry-by-entry,
+	 * extracting each one to its correct place.
+	 */
+	while (1 == fread(&header, sizeof(header), 1, archive_file))
+	{
+		/* Act according to the node's type */
+		if (S_ISREG(header.mode))
+		{
+			/* Create the file that is extracted */
+			extracted_file = fopen(header.path, "wb");
+
+			/* Make sure it was created properly */
+			if (extracted_file == NULL)
+			{
+				printf("Error extracting file %s: %s",
+						header.path,
+						strerror(errno));
+				return;
+			}
+
+			/* Copy the contents of the extracted file */
+			if (0 != copy_file_content(extracted_file,
+									   archive_file,
+									   header.concrete.type.file.size))
+			{
+				printf("Error extracting file %s: %s\n",
+						header.path,
+						strerror(errno));
+				return;
+			}
+		}
+		else if (S_ISDIR(header.mode))
+		{
+
+		}
+		else if (S_ISLNK(header.mode))
+		{
+
+		}
+		else
+		{
+
+		}
+
+		/* Set all the general header properties */
+
+		/* Close the file */
+		if (extracted_file != NULL)
+		{
+			if (fclose(extracted_file) != 0)
+			{
+				printf("Error closing %s: %s\n",
+						header.path,
+						strerror(errno));
+				return;
+			}
+		}
+	}
+
+	/* Ended because of an error and not eof? */
+	if (!feof(archive_file))
+	{
+		/* todo: printf */
 		return;
 	}
 }
