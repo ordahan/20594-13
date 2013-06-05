@@ -39,12 +39,16 @@ typedef struct
 
 typedef struct
 {
-
 }symbolic_link_node_t;
 
 typedef struct
 {
-	char   szPath[PATH_MAX_LENGTH];
+	char linked_path[PATH_MAX_LENGTH];
+}symbolic_link_content_t;
+
+typedef struct
+{
+	char   path[PATH_MAX_LENGTH];
 	mode_t mode;
 	uid_t  uid;
 	gid_t  gid;
@@ -56,7 +60,7 @@ typedef struct
 	};
 }node_t;
 
-void compress(const char* base, const char* file, FILE* flResult);
+void archive(const char* base, const char* file, FILE* flResult);
 
 
 #endif /* MKBKP_H_ */
