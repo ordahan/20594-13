@@ -1,5 +1,5 @@
 all: mkbkp
-FLAGS = -Wall -L./ -g
+FLAGS = -Wall -L./ -g -std=gnu99
 
 mkbkp: mkbkp.c mkbkp.h
 	gcc $(FLAGS) -o mkbkp mkbkp.c  

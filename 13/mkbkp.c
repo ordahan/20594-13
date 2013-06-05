@@ -9,51 +9,55 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <dirent.h>
 
 #include "mkbkp.h"
 
-// Internal functions
-// TODO: doc
+/* Internal functions */
+/* TODO: doc */
 int copy_file_content(FILE* dest, FILE* src);
-void write_file_content(node_t *header, FILE* dest);
+void write_file_content_to_archive(node_t *header, FILE* dest);
 
 int main(int argc, char** argv)
 {
 	unsigned int fValidSyntax = 0;
 	unsigned int fIsCompressing = 0;
 
-	// At least 1 flag parameter must be entered
-	// and an archive name
+	/* At least 1 flag parameter must be entered
+	 and an archive name */
 	if (argc > 2)
 	{
-		// Compress
+		/* Compress */
 		if ((0 == strcmp(FLAG_COMPRESS, argv[1])) &&
 			(argc == 4))
 		{
-			// Syntax is ok
+			/* Syntax is ok */
 			fValidSyntax = 1;
 			fIsCompressing = 1;
 		}
-		// Extract
+		/* Extract */
 		else if ((0 == strcmp(FLAG_EXTRACT, argv[1])) &&
 				 (argc == 3))
 		{
-			// Syntax is ok
+			/* Syntax is ok */
 			fValidSyntax = 1;
 			fIsCompressing = 0;
 		}
 	}
 
-	// Syntax is incorrect
+	/* Syntax is incorrect */
 	if (fValidSyntax == 0)
 	{
 		printf("Usage: mkbkp <-c|-x> <backup_file> [file_to_backup|directory_to_backup]\n");
 		return -1;
 	}
-	// Ok lets get this show on the road
+	/* Ok lets get this show on the road */
 	else
 	{
-		// Compression
+		/* Compression */
 		if (fIsCompressing == 1)
 		{
 			/* Open the archive file to store the compression
@@ -69,7 +73,8 @@ int main(int argc, char** argv)
 				return -1;
 			}
 
-			compress(argv[3], archive);
+			/* Compress the given directory / file to archive! */
+			compress(NULL, argv[3], archive);
 
 			if (fclose(archive) != 0)
 			{
@@ -79,7 +84,7 @@ int main(int argc, char** argv)
 				return -1;
 			}
 		}
-		// Extract
+		/* Extract */
 		else
 		{
 
@@ -89,39 +94,44 @@ int main(int argc, char** argv)
 	return 0;
 }
 
-void compress(const char* szPath, FILE* flResult)
+void compress(const char* base, const char* file, FILE* flResult)
 {
 	node_t header;
 	struct stat status;
 
-	// Make sure ptrs are valid
-	if (szPath == NULL ||
+	/* Make sure ptrs are valid */
+	if (file == NULL ||
 		flResult == NULL)
 		return;
 
-	// Set the path in the header
-	// TODO: RELATIVE
+	/* Set the path in the header
+	 TODO: RELATIVE */
 	memset(header.szPath, 0, sizeof(header.szPath));
-	strcpy(header.szPath, szPath);
-
-	// Make sure that the requested node is
-	// either a file, a symlink or a folder
-	if (0 == lstat(szPath, &status))
+	if (base)
 	{
-		// Save the type & permissions of the node
+		strcpy(header.szPath, base);
+		strcat(header.szPath, "/");
+	}
+	strcat(header.szPath, file);
+
+	/* Make sure that the requested node is
+	 either a file, a symlink or a folder */
+	if (0 == lstat(header.szPath, &status))
+	{
+		/* Save the type & permissions of the node */
 		header.mode = status.st_mode;
 
-		// Save the uid & gid
+		/* Save the uid & gid */
 		header.uid = status.st_uid;
 		header.gid = status.st_gid;
 
-		// Save modification time (for file / folders)
+		/* Save modification time (for file / folders) */
 		header.concrete.modification = status.st_mtime;
 
-		// Save the file size (for files)
+		/* Save the file size (for files) */
 		header.concrete.type.file.size = status.st_size;
 
-		// Write the current node header to the archive
+		/* Write the current node header to the archive */
 		if (fwrite(&header,
 				   sizeof(header),
 				   1,
@@ -133,37 +143,78 @@ void compress(const char* szPath, FILE* flResult)
 			return;
 		}
 
-		// Symlink
+		/* Symlink */
 		if (S_ISLNK(status.st_mode))
 		{
-			// TODO: anything else to do actually?
+			/* TODO: anything else to do actually? */
 		}
-		// Folder / File
+		/* Folder / File */
 		else if (S_ISREG(status.st_mode) ||
 				 S_ISDIR(status.st_mode))
 		{
-			// Folder
+			/* Folder */
 			if (S_ISDIR(status.st_mode))
 			{
-				// TODO: Continue the recursion
+				DIR* dir = opendir(header.szPath);
+				struct dirent* entry = NULL;
+
+				/* Make sure the directory stream opened ok */
+				if (dir == NULL)
+				{
+					printf("Directory %s couldn't be opened\n",
+							header.szPath);
+					perror(strerror(errno));
+				}
+
+				/* Read all the entries in the directory */
+				while ((entry = readdir(dir)))
+				{
+					/* Recursively run this function on the tree,
+					 * don't traverse upwards or call on the
+					 * current directory!*/
+					if (strcmp(".", entry->d_name) != 0 &&
+						strcmp("..", entry->d_name) != 0)
+					{
+						compress(header.szPath, entry->d_name, flResult);
+					}
+				}
+
+				/* Make sure we stopped becuase we went thru
+				 all the files */
+				if (errno)
+				{
+					fprintf(stderr,
+							"Error while processing directory %s: ",
+							header.szPath);
+					perror("");
+				}
+
+				/* Close down the dir stream */
+				if (closedir(dir))
+				{
+					fprintf(stderr,
+							"Cannot close directory %s: ",
+							header.szPath);
+					perror("");
+				}
 			}
-			// File
+			/* File */
 			else
 			{
-				write_file_content(&header, flResult);
+				write_file_content_to_archive(&header, flResult);
 			}
 		}
 		else
 		{
 			printf("file type not supported for %s: %d\n",
-					szPath,
+					header.szPath,
 					status.st_mode);
 		}
 	}
 	else
 	{
 		printf("stat failed for %s: %s\n",
-				szPath,
+				header.szPath,
 				strerror(errno));
 	}
 }
@@ -192,11 +243,11 @@ int copy_file_content(FILE* dest, FILE* src)
 	return -1;
 }
 
-void write_file_content(node_t *header, FILE* dest)
+void write_file_content_to_archive(node_t *header, FILE* dest)
 {
 	FILE* curr_file = NULL;
 
-	// Open the file that we wish to add to the archive
+	/* Open the file that we wish to add to the archive */
 	curr_file = fopen(header->szPath, "rb");
 	if (curr_file == NULL)
 	{
@@ -206,7 +257,7 @@ void write_file_content(node_t *header, FILE* dest)
 		return;
 	}
 
-	// Write the file content
+	/* Write the file content */
 	if (0 != copy_file_content(dest, curr_file))
 	{
 		printf("Error compressing file %s: %s\n",
@@ -215,7 +266,7 @@ void write_file_content(node_t *header, FILE* dest)
 		return;
 	}
 
-	// Done reading the current file
+	/* Done reading the current file */
 	if (fclose(curr_file) != 0)
 	{
 		printf("Error closing %s: %s\n",

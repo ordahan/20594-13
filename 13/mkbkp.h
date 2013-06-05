@@ -56,7 +56,7 @@ typedef struct
 	};
 }node_t;
 
-void compress(const char* szPathToCompress, FILE* flResult);
+void compress(const char* base, const char* file, FILE* flResult);
 
 
 #endif /* MKBKP_H_ */
