@@ -60,8 +60,16 @@ typedef struct
 	};
 }node_t;
 
+/* Archive the given path.
+ * base - base of the path to archive (can be NULL to signify '.')
+ * file - filename (directory name / symbolic link name)
+ * archive_file - where to store the archived result
+ */
 void archive(const char* base, const char* file, FILE* archive_file);
 
+/* Extract the given archive file (extraction is relative to the
+ * current working directory)
+ */
 void extract(FILE* archive);
 
 

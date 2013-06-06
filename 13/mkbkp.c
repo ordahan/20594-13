@@ -13,13 +13,24 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <utime.h>
+#include <libgen.h>
 
 #include "mkbkp.h"
 
 /* Internal functions */
-/* TODO: doc */
+
+/* Copies the content of src to dest.
+ * If size_src is 0: copies the entire file,
+ * otherwise: copies max size_src bytes from src.
+ *
+ * returns 0 on success.
+ */
 int copy_file_content(FILE* dest, FILE* src, size_t size_src);
+
+/* Writes the given file node's file to the given archive */
 void write_file_content_to_archive(node_t *header, FILE* archive_file);
+
 int main(int argc, char** argv)
 {
 	unsigned int fValidSyntax = 0;
@@ -59,6 +70,9 @@ int main(int argc, char** argv)
 		/* archiving */
 		if (fIsCompressing == 1)
 		{
+			char* dir_of_target = NULL;
+			char tmp_arg[PATH_MAX_LENGTH];
+
 			/* Open the archive file to store the archiving
 			 * in
 			 */
@@ -72,8 +86,19 @@ int main(int argc, char** argv)
 				return -1;
 			}
 
+			/* Move to the directory where the target resides */
+			strcpy(tmp_arg, argv[3]);
+			dir_of_target = dirname(tmp_arg);
+			if (chdir(dir_of_target) != 0)
+			{
+				printf("Error changing working directory to %s : %s\n",
+						dir_of_target,
+						strerror(errno));
+			}
+
 			/* archive the given directory / file to archive! */
-			archive(NULL, argv[3], archive_file);
+			strcpy(tmp_arg, argv[3]);
+			archive(NULL, basename(tmp_arg), archive_file);
 
 			if (fclose(archive_file) != 0)
 			{
@@ -126,8 +151,7 @@ void archive(const char* base, const char* file, FILE* archive_file)
 
 	memset(&header, 0, sizeof(header));
 
-	/* Set the path in the header
-	 TODO: RELATIVE */
+	/* Set the path in the header */
 	if (base)
 	{
 		strcpy(header.path, base);
@@ -288,6 +312,12 @@ int copy_file_content(FILE* dest, FILE* src, size_t size_src)
 		}
 
 		bytes_copied++;
+
+		/* All bytes read */
+		if (bytes_copied == size_src)
+		{
+			return 0;
+		}
 	}
 
 	/* Ended because of an error and not eof? */
@@ -333,7 +363,6 @@ void write_file_content_to_archive(node_t *header, FILE* archive_file)
 void extract(FILE* archive_file)
 {
 	node_t header;
-	FILE* extracted_file = NULL;
 
 	/* Make sure the file is valid */
 	if (archive_file == NULL)
@@ -344,19 +373,40 @@ void extract(FILE* archive_file)
 	 */
 	while (1 == fread(&header, sizeof(header), 1, archive_file))
 	{
-		/* Act according to the node's type */
-		if (S_ISREG(header.mode))
+		/* Handle symbolic links */
+		if (S_ISLNK(header.mode))
+		{
+			symbolic_link_content_t content;
+
+			/* Extract the link */
+			if (1 != fread(&content,
+						   sizeof(content),
+						   1,
+						   archive_file) ||
+				symlink(content.linked_path, header.path) != 0)
+			{
+				printf("Error extracting directory %s: %s\n",
+					   header.path,
+					   strerror(errno));
+
+				/* Major error */
+				continue;
+			}
+		}
+		/* Handle file */
+		else if (S_ISREG(header.mode))
 		{
 			/* Create the file that is extracted */
-			extracted_file = fopen(header.path, "wb");
+			FILE* extracted_file = fopen(header.path, "wb");
 
 			/* Make sure it was created properly */
 			if (extracted_file == NULL)
 			{
-				printf("Error extracting file %s: %s",
+				printf("Error creating file %s: %s\n",
 						header.path,
 						strerror(errno));
-				return;
+				/* Major error */
+				continue;
 			}
 
 			/* Copy the contents of the extracted file */
@@ -364,36 +414,62 @@ void extract(FILE* archive_file)
 									   archive_file,
 									   header.concrete.type.file.size))
 			{
-				printf("Error extracting file %s: %s\n",
+				printf("Error copying contents of file %s: %s\n",
 						header.path,
 						strerror(errno));
-				return;
 			}
-		}
-		else if (S_ISDIR(header.mode))
-		{
 
-		}
-		else if (S_ISLNK(header.mode))
-		{
-
-		}
-		else
-		{
-
-		}
-
-		/* Set all the general header properties */
-
-		/* Close the file */
-		if (extracted_file != NULL)
-		{
+			/* Close the file */
 			if (fclose(extracted_file) != 0)
 			{
 				printf("Error closing %s: %s\n",
 						header.path,
 						strerror(errno));
-				return;
+			}
+		}
+		/* Handle directory */
+		else if (S_ISDIR(header.mode))
+		{
+			/* Create the requested directory */
+			if (mkdir(header.path, header.mode) != 0)
+			{
+				printf("Error extracting directory %s: %s\n",
+					   header.path,
+					   strerror(errno));
+
+				/* Major error */
+				continue;
+			}
+		}
+		/* UNKNOWN FILE MODE */
+		else
+		{
+			printf("Error, cannot extract file %s with mode %d\n",
+					header.path,
+					header.mode);
+		}
+
+		/* Set all the general header properties */
+		if (lchown(header.path, header.uid, header.gid) != 0)
+		{
+			printf("Error changing ownership of file %s: %s\n",
+					header.path,
+					strerror(errno));
+		}
+
+		/* Concrete mode's specifics */
+		if (S_ISREG(header.mode) ||
+			S_ISDIR(header.mode))
+		{
+			/* Set the modification (and access) time */
+			struct utimbuf times;
+			times.actime = header.concrete.modification;
+			times.modtime = header.concrete.modification;
+			if (utime(header.path, &times) != 0)
+			{
+				printf("Error changing modification time for %s: %s\n",
+						header.path,
+						strerror(errno));
 			}
 		}
 	}
@@ -401,7 +477,7 @@ void extract(FILE* archive_file)
 	/* Ended because of an error and not eof? */
 	if (!feof(archive_file))
 	{
-		/* todo: printf */
+		printf("Error extracting archive. Not done reading the entire file, might be corrupted.\n");
 		return;
 	}
 }
